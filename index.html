@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Story Adventure Creator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-out;
+        }
+        .story-book {
+            background: linear-gradient(to bottom, #fef3c7, #fde68a);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        .choice-card {
+            transition: all 0.3s ease;
+        }
+        .choice-card:hover {
+            transform: scale(1.05);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-purple-400 via-pink-300 to-blue-300 min-h-screen p-4">
+    <div class="max-w-4xl mx-auto">
+        <div class="text-center mb-8 fade-in">
+            <h1 class="text-5xl font-bold text-white mb-2" style="text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">
+                ✨ Story Adventure Creator ✨
+            </h1>
+            <p class="text-xl text-white">Create YOUR magical story!</p>
+        </div>
+
+        <div id="storyContainer" class="story-book rounded-3xl p-8 mb-6">
+            <div id="storyContent"></div>
+        </div>
+
+        <div id="loadingIndicator" class="hidden text-center py-8">
+            <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-4 border-purple-600"></div>
+            <p class="text-white text-xl mt-4">Creating magic... ✨</p>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
