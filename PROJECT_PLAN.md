@@ -30,7 +30,7 @@ A web-based platform that allows a parent and child to co-create a **physical, h
 - **Audio keepsake**: Original recording preserved in QR code
 
 ### Target Audience
-- **Primary**: Children ages 3-10 with parent involvement
+- **Primary**: Children ages 3-10 with optional parent involvement
 - **Secondary**: Parents looking for creative screen time activities
 - **Extended**: Grandparents, teachers, gift-givers
 
@@ -60,6 +60,62 @@ A web-based platform that allows a parent and child to co-create a **physical, h
 - Gallery stored in database with thumbnails
 - User authentication to load past stories
 - Lazy loading for performance
+- **Past characters appear on landing page** for returning users
+  - "Continue [Character's] Adventure" option
+  - Build character portfolio over time
+
+**Character Reuse Feature:**
+- Logged-in users see their previous characters
+- Click character → "Create sequel" or "Start new story"
+- Visual seed automatically loaded for sequels
+- Maintains consistency across books
+
+---
+
+### Phase 0.5: Art Style Selection
+
+**Before Story Creation:**
+After clicking "Start Creating", user selects art style preference.
+
+**UX:**
+- "Choose your story's style!" heading
+- Grid of 6-8 style options with example illustrations:
+  - 🎨 Watercolor (soft, dreamy)
+  - ✏️ Pencil Sketch (classic, hand-drawn)
+  - 🖍️ Crayon/Kids Drawing (playful, crude)
+  - 🎭 3D Render (modern, Pixar-like)
+  - 🏺 Claymation (tactile, Wallace & Gromit)
+  - 📐 Geometric/Minimalist (clean, modern)
+  - 🌈 Pop Art (bold, colorful)
+  - 📚 Classic Storybook (traditional illustration)
+
+**Each option shows:**
+- Sample character in that style
+- Style name + brief description
+- Preview of what their book might look like
+
+**Technical:**
+- Style choice stored in session state
+- Passed to all image generation prompts
+- Can't change mid-story (consistency)
+- V2.0: Show same character in 2 styles, let them pick
+- V3.0: Style intensity slider
+
+**V2.0 Enhancement:**
+After first character is generated, show it in 2-3 different styles:
+```
+"Here's your character! Which style do you like better?"
+[Same dragon in watercolor] [Same dragon in 3D] [Same dragon in sketch]
+```
+
+User picks → that becomes locked style for entire book.
+
+**V3.0 Enhancement:**
+Style mixing slider:
+```
+Watercolor ←─────●────→ 3D Render
+```
+Generate hybrid styles for unique looks.
 
 ---
 
@@ -312,7 +368,7 @@ Tasks:
   Main character: [character details]
   
   Requirements:
-  - Age-appropriate (3-10 years)
+  - Age-appropriate (5-10 years)
   - Clear narrative arc
   - Each page: 1-3 sentences
   - Maintain child's voice and creativity
@@ -408,6 +464,86 @@ Tasks:
 - Shipping: $4-8
 - **Total to customer: $19.99-29.99**
 
+**Print Provider:** TBD (researching Lulu, Blurb, Printful, BookBaby)
+
+#### Step 3.7: Digital Book Formats & Reader Experience
+**Formats to Generate:**
+
+1. **PDF** (Standard)
+   - High-resolution for printing (300 DPI)
+   - Downloadable for keeping/sharing
+   - Optimized file size for emailing
+
+2. **EPUB** (E-readers)
+   - For iBooks, Kindle, Kobo
+   - Reflowable text for different screen sizes
+   - Embedded images
+   - Table of contents navigation
+
+3. **Interactive Web Reader** (Premium Experience)
+   - Makes digital version worth paying for
+   - Keeps users engaged on platform
+
+**Web Reader Features:**
+
+**Core Features (MVP):**
+- Page-turning animations (react-pageflip or turn.js)
+- Swipe to turn on mobile
+- Full-screen reading mode
+- Progress indicator
+- Bookmark current page
+- "Read to Me" button (Google TTS)
+
+**Enhanced Features (V1.5):**
+- Night mode for bedtime reading
+- Adjustable text size
+- Background music toggle (optional gentle instrumentals)
+- Sound effects on page turn
+- Parent can record themselves reading (audio overlay)
+
+**Dynamic Visual Effects (V2.0):**
+- Subtle parallax scrolling (background moves slower than foreground)
+- Ambient animations:
+  - Character blinks occasionally
+  - Trees sway gently
+  - Water ripples
+  - Stars twinkle
+- Tap elements for micro-interactions (character waves, object wiggles)
+- Ken Burns effect (slow zoom/pan on images)
+- Keep animations subtle - shouldn't distract from story
+
+**Technical Implementation:**
+```javascript
+// Using react-pageflip or similar
+<HTMLFlipBook
+  width={600}
+  height={800}
+  size="stretch"
+  minWidth={315}
+  maxWidth={1000}
+  minHeight={400}
+  maxHeight={1350}
+  showCover={true}
+  flippingTime={1000}
+  style={{ margin: "0 auto" }}
+>
+  {pages.map((page, index) => (
+    <div key={index} className="page">
+      <img src={page.image} alt={page.alt} />
+      <div className="text">{page.text}</div>
+      {page.hasAudio && <AudioPlayer src={page.audioUrl} />}
+    </div>
+  ))}
+</HTMLFlipBook>
+```
+
+**Why This Matters:**
+- Makes digital book feel premium (not just a PDF)
+- Increases perceived value of digital-only option
+- Encourages users to read on platform (engagement)
+- Shareability - easier to send link than PDF
+- Future: Can track which pages kids spend most time on (analytics)
+
 ---
 
 ## Technical Architecture
@@ -431,21 +567,21 @@ Tasks:
 #### Database
 - **Primary:** PostgreSQL
   - Store user accounts, story metadata, order history
-- **File Storage:** AWS S3 or Cloudinary
+- **File Storage:** Google Cloud Storage
   - Audio recordings
   - Generated images
   - Final PDFs
+  - Using existing Google Cloud account
 - **Cache:** Redis (for session state, story state)
 
 #### AI Services
 
-| Service | Provider | Purpose | Cost (approx) |
-|---------|----------|---------|---------------|
-| Voice Interaction | OpenAI Realtime API | Low-latency conversational AI | $0.06/min input, $0.24/min output |
-| Transcription | OpenAI Whisper | Audio → Text | $0.006/min |
-| Story Brain | Claude 3.5 Sonnet | Narrative generation, topic extraction | $3/M input tokens, $15/M output tokens |
-| Image Generation | Flux.1 [dev] (Replicate) | Character & scene illustrations | ~$0.025 per image |
-| Text-to-Speech | ElevenLabs or OpenAI TTS | "Read to me" feature | $0.30/1K characters |
+| Service | Provider | Purpose | Cost (approx) | Notes |
+|---------|----------|---------|---------------|-------|
+| Transcription | Google Speech-to-Text | Audio → Text (streaming) | $0.024/min | Using existing Google Cloud account |
+| Story Brain | Claude 3.5 Sonnet | Narrative generation, topic extraction, conversational guidance | $3/M input tokens, $15/M output tokens | Timed prompts (45-90 sec intervals) |
+| Image Generation | Flux.1 [dev] (Replicate) | Character & scene illustrations | ~$0.025 per image | IP-Adapter for consistency |
+| Text-to-Speech | Google Cloud TTS | Optional "Read to me" feature | ~$0.002 per book | V2: Offer ElevenLabs premium upgrade |
 
 #### Additional Services
 - **Authentication:** Clerk or Auth0
@@ -457,22 +593,22 @@ Tasks:
 ### System Architecture Diagram
 
 ```
-┌────────────────────────────────────────────────────────────┐
-│                     User's Browser                         │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │   Next.js    │  │  Recording   │  │  Real-time   │      │
-│  │   Frontend   │  │    UI        │  │   Updates    │      │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘      │
+┌─────────────────────────────────────────────────────────────┐
+│                     User's Browser                          │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │
+│  │   Next.js    │  │  Recording   │  │  Real-time   │     │
+│  │   Frontend   │  │    UI        │  │   Updates    │     │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘     │
 └─────────┼──────────────────┼──────────────────┼────────────┘
           │                  │                  │
           ▼                  ▼                  ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              FastAPI Backend (Python)                       │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │  API Endpoints:                                      │   │
-│  │  /api/transcribe  /api/generate-image                │   │
-│  │  /api/story-beat  /api/finalize                      │   │
-│  └──────────────────────────────────────────────────────┘   │
+│              FastAPI Backend (Python)                        │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │  API Endpoints:                                      │  │
+│  │  /api/transcribe  /api/generate-image               │  │
+│  │  /api/story-beat  /api/finalize                     │  │
+│  └──────────────────────────────────────────────────────┘  │
 └─────────┬────────────────┬──────────────────┬───────────────┘
           │                │                  │
           ▼                ▼                  ▼
@@ -483,20 +619,20 @@ Tasks:
           │
           ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    External AI Services                     │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐        │
-│  │  Whisper │ │  Claude  │ │  Flux.1  │ │ Realtime │        │
-│  │   API    │ │   API    │ │   API    │ │   API    │        │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘        │ 
+│                    External AI Services                      │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
+│  │  Whisper │ │  Claude  │ │  Flux.1  │ │ Realtime │      │
+│  │   API    │ │   API    │ │   API    │ │   API    │      │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
 └─────────────────────────────────────────────────────────────┘
           │
           ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                  Print & Delivery                           │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐                     │
-│  │   Lulu   │ │  Stripe  │ │ SendGrid │                     │
-│  │   API    │ │ Payments │ │  Email   │                     │
-│  └──────────┘ └──────────┘ └──────────┘                     │
+│                  Print & Delivery                            │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐                    │
+│  │   Lulu   │ │  Stripe  │ │ SendGrid │                    │
+│  │   API    │ │ Payments │ │  Email   │                    │
+│  └──────────┘ └──────────┘ └──────────┘                    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -505,44 +641,59 @@ Tasks:
 #### Challenge 1: Visual Consistency
 **Problem:** Character needs to look identical across 10-20 images
 
-**Solutions:**
-1. **IP-Adapter Approach:**
-   - Use first approved character image as reference
-   - Include in every subsequent generation
-   - Flux.1 supports image conditioning
+**Chosen Solution: IP-Adapter with Reference Image**
 
-2. **LoRA Fine-tuning (Advanced):**
-   - Train a small LoRA on the approved character
-   - Use for all subsequent generations
-   - More complex but most consistent
+**Implementation:**
+- Use first approved character image as **Visual Reference**
+- Include reference in every subsequent generation via IP-Adapter
+- Flux.1 supports image conditioning natively
+- Maintain detailed character description across all prompts
+- Use consistent style parameters
 
-3. **Prompt Engineering:**
-   - Maintain extremely detailed character description
-   - Use same seed/parameters when possible
-   - Include reference hash in prompts
-
-**Recommended:** Start with IP-Adapter, consider LoRA for v2.0
+**V2.0 Option:** Consider LoRA fine-tuning for premium tier if IP-Adapter proves insufficient
 
 #### Challenge 2: Real-time Interruptions
-**Problem:** AI needs to interrupt naturally during storytelling
+**Problem:** AI needs to ask questions at natural moments without interrupting too frequently
 
-**Solutions:**
-1. **OpenAI Realtime API** (Recommended for v1.0)
-   - Built for conversational interruptions
-   - Low latency (<1 second)
-   - Natural voice interaction
-   - Cost: Higher but better UX
+**Solution: Smart Timed Prompts with Pause Detection**
 
-2. **Timed Prompts with Claude**
-   - Interrupt every 30-45 seconds
-   - Analyze what's been said
-   - Generate next question
-   - Cost: Lower but slight delay
+Implementation Strategy:
+```javascript
+const interruptionConfig = {
+  minTimeBetweenPrompts: 45,    // Never interrupt before 45 seconds
+  maxTimeBetweenPrompts: 90,    // Always check in by 90 seconds  
+  pauseDetectionLength: 3,      // Wait for 3-second pause
+  modes: {
+    minimal: { min: 60, max: 120 },    // Parent can adjust
+    normal: { min: 45, max: 90 },
+    frequent: { min: 30, max: 60 }
+  }
+}
+```
 
-3. **Hybrid Approach**
-   - Use Realtime API for conversation
-   - Use Claude for deep narrative analysis
-   - Best of both worlds
+**How it works:**
+1. Listen continuously with Google Speech-to-Text streaming
+2. Detect natural pauses (3+ seconds of silence)
+3. Only prompt when:
+   - Child has been talking 45+ seconds AND pauses
+   - OR 90 seconds elapsed (prompt at next pause)
+4. Never interrupt mid-sentence
+
+**User Controls:**
+- Parent dashboard: "Interruption: Minimal / Normal / Frequent"
+- "Let them tell their story" mode (only prompts at major story beats)
+- Visual indicator 3 seconds before AI will speak (parent veto button)
+
+**Cost Savings:**
+- Google Speech-to-Text: $0.024/min (~60% cheaper than OpenAI Whisper)
+- Claude API for questions: $0.03-0.05 per session
+- Total: ~$0.10-0.15 per story vs. $1.50+ with Realtime API
+- **Savings: ~90%**
+
+**Future Upgrade Path:**
+- V2.0: Offer OpenAI Realtime API as premium feature ($2.99 upgrade)
+- More natural interruptions for users who want it
+- A/B test which users prefer
 
 #### Challenge 3: State Management
 **Problem:** Track complex story state across conversation
@@ -872,18 +1023,19 @@ def generate_book_pdf(story_data):
 
 ### Per-Story Production Costs
 
-| Service | Cost per Story |
-|---------|----------------|
-| Transcription (Whisper) | $0.03-0.06 (5-10 min total) |
-| Character Generation (Claude + Images) | $0.15-0.25 |
-| Story Beats (Claude + WIP images) | $0.20-0.30 |
-| Final Polish (Claude) | $0.05-0.10 |
-| Final Images (10-15 pages) | $0.30-0.60 |
-| Audio Storage | $0.01 |
-| **Subtotal (Digital)** | **$0.74-1.32** |
-| Print-on-Demand | $8-15 (varies by page count) |
-| Shipping | $4-8 |
-| **Total Cost per Book** | **$12.74-24.32** |
+| Service | Cost per Story | Notes |
+|---------|----------------|-------|
+| Transcription (Google Speech-to-Text) | $0.12-0.24 (5-10 min streaming) | Using existing GCP account |
+| Character Generation (Claude + Images) | $0.15-0.25 | Topic extraction + initial image + iterations |
+| Story Beats (Claude + WIP images) | $0.15-0.25 | Timed prompts ~90% cheaper than Realtime API |
+| Final Polish (Claude) | $0.05-0.10 | Transform transcript to book narrative |
+| Final Images (10 pages) | $0.25-0.40 | High-quality with IP-Adapter |
+| Text-to-Speech (Google Cloud) | $0.002 | "Read to Me" feature essentially free |
+| Audio Storage (GCS) | $0.01 | QR code audio keepsake |
+| **Subtotal (Digital)** | **$0.73-1.24** | ~40% cheaper with Google services |
+| Print-on-Demand | $8-15 (varies by page count) | TBD: Lulu/Blurb/Printful |
+| Shipping | $4-8 | Varies by location |
+| **Total Cost per Book** | **$12.73-24.24** |
 
 ### Pricing Strategy
 
@@ -893,8 +1045,13 @@ def generate_book_pdf(story_data):
 - **Physical Only:** $24.99
 
 **Margins:**
-- Digital: $9.99 - $1.32 = **$8.67 profit** (87% margin)
-- Physical: $29.99 - $24.32 = **$5.67 profit** (19% margin)
+- Digital: $9.99 - $1.24 = **$8.75 profit** (88% margin) ⬆️
+- Physical: $29.99 - $24.24 = **$5.75 profit** (19% margin)
+
+**Cost Savings vs. Original Plan:**
+- Using Google Cloud services: ~$0.20 saved per book
+- Using timed prompts vs. Realtime API: ~$1.00+ saved per book
+- **Total savings: ~40% on digital costs**
 
 **At Scale (100 books/month):**
 - Revenue: $2,999 (all physical)
@@ -913,37 +1070,57 @@ def generate_book_pdf(story_data):
 
 ---
 
-## Open Questions & Decisions
+## Decisions Made & Open Questions
 
-### Product Decisions
-- [ ] **Age range:** Should we target 4-7 or 5-10? Or have modes for each?
-- [ ] **Parent involvement:** Required throughout or optional?
-- [ ] **Story length:** Fixed (10 pages) or flexible (8-20)?
-- [ ] **Art style:** Let user choose upfront or auto-detect from first image?
-- [ ] **Multi-character stories:** Allow adding friends/sidekicks?
-- [ ] **Series capability:** Can kids create sequels with same character?
+### Product Decisions ✅
+- [x] **Age range:** 3-10 years old (broader range accommodates different development levels)
+- [x] **Parent involvement:** Suggested but optional - if kid wants to create solo, that's fine
+- [x] **Story length:** Start with fixed 10 pages for MVP, flexible 8-20 pages post-beta
+- [x] **Art style:** User selects from fixed options upfront
+  - V2.0: Show two versions of same scene in different styles (interactive selection)
+  - V3.0: Slider to adjust style intensity
+- [x] **Multi-character stories:** Yes, allowed! Main artistic focus on protagonist
+  - V2.0: More detailed art for supporting characters
+- [x] **Series capability:** YES! Past characters appear on home page for reuse
+  - Build portfolio of characters
+  - "Continue [Character's] Adventure" option
 
-### Technical Decisions
-- [ ] **Realtime vs. Timed prompts:** Use OpenAI Realtime API or save cost with timed Claude calls?
-- [ ] **Image consistency:** IP-Adapter or LoRA fine-tuning?
-- [ ] **Storage:** AWS S3, Cloudinary, or something else?
-- [ ] **Database:** PostgreSQL, MongoDB, or Supabase?
-- [ ] **Print provider:** Lulu, Blurb, Printful, or BookBaby?
-- [ ] **Frontend framework:** Stick with Next.js or consider alternatives?
+### Technical Decisions ✅
+- [x] **Realtime vs. Timed prompts:** Timed Claude calls (45-90 sec with pause detection)
+  - Cost savings: ~90%
+  - V2.0: Offer OpenAI Realtime as premium upgrade
+- [x] **Image consistency:** IP-Adapter with reference image
+  - V2.0: Consider LoRA for premium tier
+- [x] **Storage:** Google Cloud Storage (existing account)
+- [x] **Database:** PostgreSQL (decision finalized)
+- [x] **Print provider:** TBD - researching options (Lulu, Blurb, Printful, BookBaby)
+- [x] **Frontend framework:** Next.js (confirmed)
 
-### Business Decisions
+### Business Decisions 🔄
+*Deferred to post-MVP - focus on building first*
 - [ ] **Freemium model:** Free digital + paid print, or all paid?
 - [ ] **Subscription:** Offer monthly unlimited for $X?
 - [ ] **B2B opportunity:** Sell to schools/libraries?
 - [ ] **Licensing:** Offer white-label to other companies?
 - [ ] **Privacy:** How do we handle children's data (COPPA compliance)?
 
-### UX Questions
-- [ ] **Onboarding:** Do we need a tutorial?
-- [ ] **Sample stories:** Show examples before they start?
-- [ ] **Saving progress:** Can they come back later to finish?
-- [ ] **Sharing:** Can they share digital version with friends/family?
-- [ ] **Multilingual:** Support other languages in v1?
+### UX Decisions ✅
+- [x] **Onboarding:** YouTube video tutorial (simple, effective)
+- [x] **Sample stories:** Not needed for MVP
+- [x] **Saving progress:** YES - users can return to finish later
+- [x] **Sharing:** YES - can share digital version with friends/family
+- [x] **Multilingual:** English only for V1, other languages later
+
+### New Decisions Documented 📝
+- [x] **Text-to-Speech:** Google Cloud TTS for "Read to Me" feature (~free)
+  - V2.0: ElevenLabs premium voices as $2.99 upgrade
+- [x] **Digital formats:** PDF + EPUB + Interactive web reader
+- [x] **Web reader features:** Page-turning, night mode, bookmarks, TTS
+  - V2.0: Subtle animations, parallax effects
+- [x] **Interruption frequency:** Smart pause detection, parent controls
+  - Minimal/Normal/Frequent modes
+  - Visual warning before AI speaks
+- [x] **Transcription:** Google Speech-to-Text streaming (existing account)
 
 ---
 
