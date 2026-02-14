@@ -1,3 +1,7 @@
+# Google Cloud credentials
+google-credentials.json
+*.json.key
+
 # Logs
 logs
 *.log

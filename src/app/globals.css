@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gradient-to-br from-purple-400 via-pink-300 to-blue-300 min-h-screen;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-full
+           transition-all duration-200 hover:scale-105 active:scale-95;
+  }
+
+  .btn-danger {
+    @apply bg-red-500 hover:bg-red-600 text-white font-bold rounded-full
+           transition-all duration-200 hover:scale-105 active:scale-95;
+  }
+
+  .card {
+    @apply bg-gradient-to-b from-amber-50 to-amber-200 rounded-3xl p-8
+           shadow-[0_10px_30px_rgba(0,0,0,0.2)];
+  }
+}
