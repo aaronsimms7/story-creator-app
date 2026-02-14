@@ -1,3 +1,266 @@
+// --- Recording state ---
+const recordingState = {
+    mediaRecorder: null,
+    audioChunks: [],
+    stream: null,
+    startTime: null,
+    timerInterval: null,
+    maxDuration: 60
+};
+
+// --- Recording UI + Whisper transcription ---
+
+function showRecordingScreen() {
+    storyState.currentScene = 'recording';
+    const content = `
+        <div class="fade-in text-center">
+            <h2 class="text-3xl font-bold text-purple-800 mb-4">Describe Your Character!</h2>
+            <p class="text-lg text-gray-700 mb-8">Tell us about your hero — their name, what they look like, and what makes them special.</p>
+
+            <button id="startRecBtn" onclick="startRecording()"
+                    class="bg-red-500 hover:bg-red-600 text-white text-2xl font-bold py-6 px-10 rounded-full transform transition hover:scale-110 mb-6">
+                Start Recording
+            </button>
+
+            <div id="recordingIndicator" class="hidden mb-6">
+                <div class="flex items-center justify-center gap-3 mb-4">
+                    <div class="w-4 h-4 bg-red-500 rounded-full recording-pulse"></div>
+                    <span class="text-xl font-bold text-red-600">Recording...</span>
+                </div>
+                <div id="timerDisplay" class="text-4xl font-mono text-purple-800 mb-4">0:00</div>
+                <div id="waveform" class="flex items-center justify-center gap-1 h-10 mb-6">
+                    ${Array.from({length: 12}, (_, i) => `<div class="wave-bar bg-purple-500 w-2 rounded-full" style="animation-delay: ${i * 0.1}s"></div>`).join('')}
+                </div>
+                <button id="stopRecBtn" onclick="stopRecording()"
+                        class="bg-gray-700 hover:bg-gray-800 text-white text-xl font-bold py-4 px-8 rounded-full">
+                    Stop Recording
+                </button>
+            </div>
+        </div>
+    `;
+    document.getElementById('storyContent').innerHTML = content;
+}
+
+async function startRecording() {
+    try {
+        recordingState.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+        console.error('Microphone access denied:', err);
+        showError('showRecordingScreen()');
+        return;
+    }
+
+    recordingState.audioChunks = [];
+
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+    recordingState.mediaRecorder = new MediaRecorder(recordingState.stream, { mimeType });
+
+    recordingState.mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordingState.audioChunks.push(e.data);
+    };
+
+    recordingState.mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(recordingState.audioChunks, { type: mimeType });
+        cleanupRecording();
+        sendForTranscription(audioBlob);
+    };
+
+    recordingState.mediaRecorder.start();
+    recordingState.startTime = Date.now();
+
+    // Show recording indicator, hide start button
+    document.getElementById('startRecBtn').classList.add('hidden');
+    document.getElementById('recordingIndicator').classList.remove('hidden');
+
+    // Start timer
+    recordingState.timerInterval = setInterval(updateTimer, 1000);
+
+    // Auto-stop at max duration
+    setTimeout(() => {
+        if (recordingState.mediaRecorder && recordingState.mediaRecorder.state === 'recording') {
+            stopRecording();
+        }
+    }, recordingState.maxDuration * 1000);
+}
+
+function updateTimer() {
+    const elapsed = Math.floor((Date.now() - recordingState.startTime) / 1000);
+    const minutes = Math.floor(elapsed / 60);
+    const seconds = elapsed % 60;
+    const display = document.getElementById('timerDisplay');
+    if (display) display.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function stopRecording() {
+    if (recordingState.mediaRecorder && recordingState.mediaRecorder.state === 'recording') {
+        recordingState.mediaRecorder.stop();
+    }
+}
+
+function cleanupRecording() {
+    if (recordingState.timerInterval) {
+        clearInterval(recordingState.timerInterval);
+        recordingState.timerInterval = null;
+    }
+    if (recordingState.stream) {
+        recordingState.stream.getTracks().forEach(track => track.stop());
+        recordingState.stream = null;
+    }
+}
+
+async function sendForTranscription(audioBlob) {
+    showLoading(true);
+
+    try {
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.webm');
+
+        const response = await fetch('/api/transcribe', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) throw new Error(`Transcription error ${response.status}`);
+
+        const data = await response.json();
+        showLoading(false);
+        showConfirmationScreen(data.transcript);
+    } catch (err) {
+        console.error('Transcription failed:', err);
+        showLoading(false);
+        showError('showRecordingScreen()');
+    }
+}
+
+function showConfirmationScreen(transcript) {
+    storyState.currentScene = 'confirm-transcript';
+    const content = `
+        <div class="fade-in">
+            <h2 class="text-3xl font-bold text-purple-800 mb-4">Here's what we heard!</h2>
+            <p class="text-lg text-gray-700 mb-4">Edit anything that doesn't look right:</p>
+            <textarea id="transcriptEditor"
+                      class="w-full text-lg p-4 rounded-xl border-4 border-purple-300 focus:border-purple-600 outline-none mb-6 h-40">${transcript}</textarea>
+            <div class="flex gap-4">
+                <button onclick="showRecordingScreen()"
+                        class="flex-1 bg-gray-500 hover:bg-gray-600 text-white text-xl font-bold py-4 px-8 rounded-full">
+                    Re-record
+                </button>
+                <button onclick="confirmTranscript()"
+                        class="flex-1 bg-green-600 hover:bg-green-700 text-white text-xl font-bold py-4 px-8 rounded-full">
+                    That's Right!
+                </button>
+            </div>
+        </div>
+    `;
+    document.getElementById('storyContent').innerHTML = content;
+}
+
+function confirmTranscript() {
+    const transcript = document.getElementById('transcriptEditor').value.trim();
+    if (!transcript) {
+        alert('Please add a character description!');
+        return;
+    }
+    storyState.characterDescription = transcript;
+
+    const content = `
+        <div class="fade-in text-center">
+            <div class="text-6xl mb-4">&#127881;</div>
+            <h2 class="text-3xl font-bold text-purple-800 mb-4">Character Saved!</h2>
+            <p class="text-lg text-gray-700 mb-2">Here's your description:</p>
+            <div class="bg-white bg-opacity-60 rounded-xl p-4 mb-6 text-left">
+                <p class="text-gray-800">${transcript}</p>
+            </div>
+            <p class="text-gray-500">Story generation coming soon — stay tuned!</p>
+        </div>
+    `;
+    document.getElementById('storyContent').innerHTML = content;
+}
+
+// --- API helper ---
+async function callAPI(messages, maxTokens = 1024) {
+    const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: maxTokens,
+            messages
+        })
+    });
+    if (!response.ok) throw new Error(`API error ${response.status}`);
+    return response.json();
+}
+
+// --- Error screen ---
+function showError(retryFunction) {
+    showLoading(false);
+    const content = `
+        <div class="fade-in text-center">
+            <div class="text-6xl mb-4">😿</div>
+            <h2 class="text-3xl font-bold text-purple-800 mb-4">Oops! Something went wrong</h2>
+            <p class="text-lg text-gray-700 mb-6">The story magic had a little hiccup. Let's try again!</p>
+            <button onclick="${retryFunction}"
+                    class="bg-purple-600 hover:bg-purple-700 text-white text-xl font-bold py-4 px-8 rounded-full">
+                Try Again! ✨
+            </button>
+        </div>
+    `;
+    document.getElementById('storyContent').innerHTML = content;
+}
+
+// --- Voice helpers ---
+function micButton(targetInputId) {
+    if (typeof VoiceInput === 'undefined' || !VoiceInput.supported) return '';
+    return `<button onclick="activateVoice('${targetInputId}')"
+                class="bg-pink-500 hover:bg-pink-600 text-white font-bold py-3 px-6 rounded-full mb-4 inline-flex items-center">
+                🎤 Speak it!
+            </button>`;
+}
+
+async function activateVoice(targetInputId) {
+    const el = document.getElementById(targetInputId);
+    if (!el) return;
+    const btn = event.currentTarget;
+    const origText = btn.innerHTML;
+    btn.innerHTML = '🎤 Listening...';
+    btn.disabled = true;
+    try {
+        const transcript = await VoiceInput.listen();
+        if (transcript) {
+            el.value = transcript;
+            el.focus();
+        }
+    } catch (err) {
+        console.warn('Voice input error:', err.message);
+    }
+    btn.innerHTML = origText;
+    btn.disabled = false;
+}
+
+async function voiceChoose(choices) {
+    const btn = event.currentTarget;
+    const origText = btn.innerHTML;
+    btn.innerHTML = '🎤 Listening...';
+    btn.disabled = true;
+    try {
+        const transcript = await VoiceInput.listen();
+        const spoken = transcript.toLowerCase().trim();
+        const numberWords = { one: 0, two: 1, three: 2, '1': 0, '2': 1, '3': 2, first: 0, second: 1, third: 2 };
+        const index = numberWords[spoken] ?? parseInt(spoken) - 1;
+        if (index >= 0 && index < choices.length) {
+            const c = choices[index];
+            makeChoice(index, c.action, c.emoji);
+            return;
+        }
+        alert(`I heard "${transcript}" — try saying "one", "two", or "three"!`);
+    } catch (err) {
+        console.warn('Voice choice error:', err.message);
+    }
+    btn.innerHTML = origText;
+    btn.disabled = false;
+}
+
 // Story state management
 const storyState = {
     character: {
@@ -19,13 +282,16 @@ function init() {
 function showWelcomeScreen() {
     const content = `
         <div class="text-center fade-in">
-            <h2 class="text-4xl font-bold text-purple-800 mb-6">Welcome, Young Storyteller! 📖</h2>
-            <p class="text-xl text-gray-700 mb-8">
-                Let's create an amazing adventure together! First, we need to create your hero.
+            <h2 class="text-4xl font-bold text-purple-800 mb-6">Welcome, Young Storyteller!</h2>
+            <p class="text-xl text-gray-700 mb-4">
+                Let's create an amazing adventure together!
             </p>
-            <button onclick="startCharacterCreation()" 
+            <p class="text-lg text-gray-600 mb-8">
+                You'll record yourself describing your hero — their name, what they look like, and what makes them awesome. Then we'll turn it into a story!
+            </p>
+            <button onclick="showRecordingScreen()"
                     class="bg-purple-600 hover:bg-purple-700 text-white text-2xl font-bold py-4 px-8 rounded-full transform transition hover:scale-110">
-                Start Creating! 🎨
+                Let's Go!
             </button>
         </div>
     `;
@@ -79,14 +345,17 @@ async function selectCharacterType(type) {
             <h2 class="text-3xl font-bold text-purple-800 mb-6">Great choice! 🎉</h2>
             <p class="text-lg text-gray-700 mb-4">You're a ${type}!</p>
             <p class="text-lg text-gray-700 mb-6">What's your hero's name?</p>
-            <input type="text" id="nameInput" 
+            <input type="text" id="nameInput"
                    class="w-full text-2xl p-4 rounded-xl border-4 border-purple-300 focus:border-purple-600 outline-none mb-4"
-                   placeholder="Enter a cool name..." 
+                   placeholder="Enter a cool name..."
                    onkeypress="if(event.key==='Enter') submitName()">
-            <button onclick="submitName()" 
-                    class="w-full bg-purple-600 hover:bg-purple-700 text-white text-xl font-bold py-4 px-8 rounded-full">
-                Continue ➜
-            </button>
+            <div class="flex gap-3 items-center">
+                ${micButton('nameInput')}
+                <button onclick="submitName()"
+                        class="flex-1 bg-purple-600 hover:bg-purple-700 text-white text-xl font-bold py-4 px-8 rounded-full">
+                    Continue ➜
+                </button>
+            </div>
         </div>
     `;
     document.getElementById('storyContent').innerHTML = content;
@@ -108,22 +377,10 @@ async function generateCharacterAppearance() {
     showLoading(true);
     
     try {
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                model: "claude-sonnet-4-20250514",
-                max_tokens: 1000,
-                messages: [{
-                    role: "user",
-                    content: `Create two different visual descriptions for a ${storyState.character.type} named ${storyState.character.name} in a children's story. Make them distinct and appealing to kids ages 5-10. Return as JSON: {"option1": "description", "option2": "description"}`
-                }]
-            })
-        });
-
-        const data = await response.json();
+        const data = await callAPI([{
+            role: "user",
+            content: `Create two different visual descriptions for a ${storyState.character.type} named ${storyState.character.name} in a children's story. Make them distinct and appealing to kids ages 5-10. Return as JSON: {"option1": "description", "option2": "description"}`
+        }], 1000);
         const textContent = data.content.find(c => c.type === 'text')?.text || '';
         const jsonMatch = textContent.match(/\{[\s\S]*\}/);
         const descriptions = jsonMatch ? JSON.parse(jsonMatch[0]) : {
@@ -173,13 +430,16 @@ function customAppearance() {
         <div class="fade-in">
             <h2 class="text-3xl font-bold text-purple-800 mb-6">Describe ${storyState.character.name}!</h2>
             <p class="text-lg text-gray-700 mb-4">Tell me what they look like:</p>
-            <textarea id="appearanceInput" 
+            <textarea id="appearanceInput"
                       class="w-full text-lg p-4 rounded-xl border-4 border-purple-300 focus:border-purple-600 outline-none mb-4 h-32"
                       placeholder="E.g., Has sparkly blue scales, wears a golden crown, has kind green eyes..."></textarea>
-            <button onclick="submitCustomAppearance()" 
-                    class="w-full bg-purple-600 hover:bg-purple-700 text-white text-xl font-bold py-4 px-8 rounded-full">
-                That's Perfect! ➜
-            </button>
+            <div class="flex gap-3 items-center">
+                ${micButton('appearanceInput')}
+                <button onclick="submitCustomAppearance()"
+                        class="flex-1 bg-purple-600 hover:bg-purple-700 text-white text-xl font-bold py-4 px-8 rounded-full">
+                    That's Perfect! ➜
+                </button>
+            </div>
         </div>
     `;
     document.getElementById('storyContent').innerHTML = content;
@@ -239,24 +499,12 @@ async function startAdventure() {
     showLoading(true);
     
     try {
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                model: "claude-sonnet-4-20250514",
-                max_tokens: 1000,
-                messages: [{
-                    role: "user",
-                    content: `Create an exciting story opening for a children's adventure story. Character: ${storyState.character.name}, a ${storyState.character.type} who is ${storyState.character.personality}. Appearance: ${storyState.character.appearance}. 
+        const data = await callAPI([{
+            role: "user",
+            content: `Create an exciting story opening for a children's adventure story. Character: ${storyState.character.name}, a ${storyState.character.type} who is ${storyState.character.personality}. Appearance: ${storyState.character.appearance}.
 
 Write 3-4 engaging paragraphs that set up an exciting problem or quest. End with a moment where the character must make a choice. Keep it appropriate for ages 5-10, magical, and exciting!`
-                }]
-            })
-        });
-
-        const data = await response.json();
+        }], 1000);
         const storyText = data.content.find(c => c.type === 'text')?.text || 'An adventure begins...';
         
         storyState.storyParts.push(storyText);
@@ -309,24 +557,12 @@ async function generateChoices() {
     showLoading(true);
     
     try {
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                model: "claude-sonnet-4-20250514",
-                max_tokens: 1000,
-                messages: [{
-                    role: "user",
-                    content: `Based on this story so far: "${storyState.storyParts.join(' ')}"
+        const data = await callAPI([{
+            role: "user",
+            content: `Based on this story so far: "${storyState.storyParts.join(' ')}"
 
 Generate 3 exciting choices for what ${storyState.character.name} could do next. Each choice should lead to a different type of adventure. Return as JSON: {"choices": [{"action": "short description", "emoji": "relevant emoji"}, ...]}`
-                }]
-            })
-        });
-
-        const data = await response.json();
+        }], 1000);
         const textContent = data.content.find(c => c.type === 'text')?.text || '';
         const jsonMatch = textContent.match(/\{[\s\S]*\}/);
         const choicesData = jsonMatch ? JSON.parse(jsonMatch[0]) : {
@@ -338,9 +574,10 @@ Generate 3 exciting choices for what ${storyState.character.name} could do next.
         };
 
         showLoading(false);
-        
+        storyState._currentChoices = choicesData.choices;
+
         let choicesHtml = choicesData.choices.map((choice, index) => `
-            <button onclick='makeChoice(${index}, \`${choice.action}\`, "${choice.emoji}")' 
+            <button onclick='makeChoice(${index}, \`${choice.action}\`, "${choice.emoji}")'
                     class="choice-card bg-white p-6 rounded-xl border-4 border-purple-300 hover:border-purple-600 text-left w-full mb-4">
                 <div class="flex items-center">
                     <div class="text-4xl mr-4">${choice.emoji}</div>
@@ -348,7 +585,13 @@ Generate 3 exciting choices for what ${storyState.character.name} could do next.
                 </div>
             </button>
         `).join('');
-        
+
+        const voiceBtn = (typeof VoiceInput !== 'undefined' && VoiceInput.supported)
+            ? `<button onclick="voiceChoose(storyState._currentChoices)"
+                       class="w-full bg-pink-500 hover:bg-pink-600 text-white font-bold py-3 px-6 rounded-full mt-2">
+                       🎤 Say your choice (one, two, or three)
+                   </button>` : '';
+
         const currentStory = document.getElementById('storyContent').innerHTML;
         const content = `
             <div class="fade-in">
@@ -356,6 +599,7 @@ Generate 3 exciting choices for what ${storyState.character.name} could do next.
                 <div class="mt-8">
                     <h3 class="text-2xl font-bold text-purple-800 mb-4">What should ${storyState.character.name} do?</h3>
                     ${choicesHtml}
+                    ${voiceBtn}
                 </div>
             </div>
         `;
@@ -364,6 +608,40 @@ Generate 3 exciting choices for what ${storyState.character.name} could do next.
     } catch (error) {
         showLoading(false);
         console.error('Error generating choices:', error);
+
+        const fallbackChoices = [
+            { action: "Go on the adventure alone, trusting your own abilities", emoji: "🦸" },
+            { action: "Find friends in the village to join you", emoji: "👥" },
+            { action: "Study the map more carefully first", emoji: "🔍" }
+        ];
+        storyState._currentChoices = fallbackChoices;
+
+        let choicesHtml = fallbackChoices.map((choice, index) => `
+            <button onclick='makeChoice(${index}, \`${choice.action}\`, "${choice.emoji}")'
+                    class="choice-card bg-white p-6 rounded-xl border-4 border-purple-300 hover:border-purple-600 text-left w-full mb-4">
+                <div class="flex items-center">
+                    <div class="text-4xl mr-4">${choice.emoji}</div>
+                    <div class="text-lg text-gray-800">${choice.action}</div>
+                </div>
+            </button>
+        `).join('');
+
+        const voiceBtn = (typeof VoiceInput !== 'undefined' && VoiceInput.supported)
+            ? `<button onclick="voiceChoose(storyState._currentChoices)"
+                       class="w-full bg-pink-500 hover:bg-pink-600 text-white font-bold py-3 px-6 rounded-full mt-2">
+                       🎤 Say your choice (one, two, or three)
+                   </button>` : '';
+
+        const content = `
+            <div class="fade-in">
+                <div class="mt-8">
+                    <h3 class="text-2xl font-bold text-purple-800 mb-4">What should ${storyState.character.name} do?</h3>
+                    ${choicesHtml}
+                    ${voiceBtn}
+                </div>
+            </div>
+        `;
+        document.getElementById('storyContent').innerHTML = content;
     }
 }
 
@@ -372,26 +650,14 @@ async function makeChoice(index, choice, emoji) {
     showLoading(true);
     
     try {
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                model: "claude-sonnet-4-20250514",
-                max_tokens: 1000,
-                messages: [{
-                    role: "user",
-                    content: `Continue this story. Previous: "${storyState.storyParts.join(' ')}"
+        const data = await callAPI([{
+            role: "user",
+            content: `Continue this story. Previous: "${storyState.storyParts.join(' ')}"
 
 ${storyState.character.name} decided to: ${choice}
 
 Write 2-3 paragraphs showing what happens next. Make it exciting and age-appropriate (ages 5-10). ${storyState.storyParts.length >= 3 ? 'This should be building toward a satisfying conclusion.' : 'Include another decision point.'}`
-                }]
-            })
-        });
-
-        const data = await response.json();
+        }], 1000);
         const nextPart = data.content.find(c => c.type === 'text')?.text || 'The adventure continues...';
         
         storyState.storyParts.push(nextPart);
@@ -427,6 +693,33 @@ Write 2-3 paragraphs showing what happens next. Make it exciting and age-appropr
     } catch (error) {
         showLoading(false);
         console.error('Error continuing story:', error);
+
+        const fallbackText = `${storyState.character.name} pressed forward with determination. The path twisted and turned through the enchanted forest, with glowing fireflies lighting the way. Every step brought new wonders and surprises. ${storyState.character.name} knew this was going to be an adventure to remember!`;
+        storyState.storyParts.push(fallbackText);
+
+        const shouldEnd = storyState.storyParts.length >= 4;
+        const content = `
+            <div class="fade-in">
+                <div class="bg-purple-100 rounded-xl p-4 mb-6">
+                    <div class="text-sm text-purple-600 font-bold">You chose: ${emoji} ${choice}</div>
+                </div>
+                <div class="prose prose-lg mb-8">
+                    <div class="text-gray-800 leading-relaxed whitespace-pre-line">${fallbackText}</div>
+                </div>
+                ${shouldEnd ? `
+                    <button onclick="endStory()"
+                            class="w-full bg-green-600 hover:bg-green-700 text-white text-xl font-bold py-4 px-8 rounded-full mb-4">
+                        Finish the Story! 📖
+                    </button>
+                ` : `
+                    <button onclick="generateChoices()"
+                            class="w-full bg-purple-600 hover:bg-purple-700 text-white text-xl font-bold py-4 px-8 rounded-full">
+                        Continue the Adventure! ➜
+                    </button>
+                `}
+            </div>
+        `;
+        document.getElementById('storyContent').innerHTML = content;
     }
 }
 
@@ -434,24 +727,12 @@ async function endStory() {
     showLoading(true);
     
     try {
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                model: "claude-sonnet-4-20250514",
-                max_tokens: 1000,
-                messages: [{
-                    role: "user",
-                    content: `Write a satisfying, uplifting ending to this story: "${storyState.storyParts.join(' ')}"
+        const data = await callAPI([{
+            role: "user",
+            content: `Write a satisfying, uplifting ending to this story: "${storyState.storyParts.join(' ')}"
 
 Make it heartwarming and celebrate ${storyState.character.name}'s journey. Keep it age-appropriate (ages 5-10) and end with a positive message. 2-3 paragraphs.`
-                }]
-            })
-        });
-
-        const data = await response.json();
+        }], 1000);
         const ending = data.content.find(c => c.type === 'text')?.text || 'And they lived happily ever after!';
         
         storyState.storyParts.push(ending);
