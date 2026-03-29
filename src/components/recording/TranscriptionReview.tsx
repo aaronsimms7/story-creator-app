@@ -37,7 +37,7 @@ export function TranscriptionReview({
         onChange={(e) => setEdited(e.target.value)}
         className="w-full text-lg p-4 rounded-xl border-4 border-purple-300
                    focus:border-purple-600 outline-none h-40 resize-none"
-        placeholder="Your story description will appear here..."
+        placeholder="Your character description will appear here..."
       />
 
       <div className="flex gap-4">

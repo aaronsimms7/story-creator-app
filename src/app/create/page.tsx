@@ -1,164 +1,252 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
+import { useCharacterCreation } from "@/hooks/useCharacterCreation";
+import { useStorytellingSession } from "@/hooks/useStorytellingSession";
 import { RecordButton } from "@/components/recording/RecordButton";
 import { WaveformVisualizer } from "@/components/recording/WaveformVisualizer";
 import { RecordingTimer } from "@/components/recording/RecordingTimer";
 import { AudioPlayback } from "@/components/recording/AudioPlayback";
-import { TranscriptionReview } from "@/components/recording/TranscriptionReview";
+import { GuidedCharacterInterview } from "@/components/character/GuidedCharacterInterview";
+import { CharacterReview } from "@/components/character/CharacterReview";
+import { CharacterLocked } from "@/components/character/CharacterLocked";
+import { StorytellingView } from "@/components/storytelling/StorytellingView";
+import { StoryComplete } from "@/components/storytelling/StoryComplete";
+import { CharacterData } from "@/types/character";
+import { ART_STYLES } from "@/lib/art-styles";
 
-type FlowStep = "ready" | "recording" | "stopped" | "transcribing" | "reviewing" | "confirmed";
+type FlowStep =
+  | "interview"
+  | "extracting"
+  | "reviewing-character"
+  | "modifying-recording"
+  | "modifying-stopped"
+  | "modifying-transcribing"
+  | "modifying"
+  | "character-locked"
+  | "storytelling"
+  | "story-complete";
 
 export default function CreatePage() {
-  const recorder = useAudioRecorder({ maxDuration: 60 });
-  const [step, setStep] = useState<FlowStep>("ready");
-  const [transcript, setTranscript] = useState("");
+  const modRecorder = useAudioRecorder({ maxDuration: 30 });
+  const character = useCharacterCreation();
+  const session = useStorytellingSession();
+
+  const [step, setStep] = useState<FlowStep>("interview");
   const [error, setError] = useState<string | null>(null);
 
-  const handleStartRecording = async () => {
-    setError(null);
-    await recorder.startRecording();
-    setStep("recording");
-  };
+  // Transition to story-complete once the story is done AND all deferred images
+  // have finished generating. session.beats is live, so StoryComplete always
+  // has the latest image results without needing a frozen snapshot.
+  useEffect(() => {
+    console.log("[TRANSITION] step:", step, "| status:", session.status, "| deferredRemaining:", session.deferredImagesRemaining, "| beats:", session.beats.length);
+    if (
+      step === "storytelling" &&
+      session.status === "complete" &&
+      session.beats.length > 0 &&
+      session.deferredImagesRemaining === 0
+    ) {
+      console.log("[TRANSITION] → transitioning to story-complete");
+      setStep("story-complete");
+    }
+  }, [step, session.status, session.deferredImagesRemaining, session.beats.length]);
 
-  const handleStopRecording = () => {
-    recorder.stopRecording();
-    setStep("stopped");
-  };
+  // --- Interview complete handler ---
 
-  const handleSubmitAudio = async () => {
-    if (!recorder.audioBlob) return;
-
-    setStep("transcribing");
-    setError(null);
-
-    try {
-      const formData = new FormData();
-      formData.append("audio", recorder.audioBlob, "recording.webm");
-
-      const response = await fetch("/api/transcribe", {
-        method: "POST",
-        body: formData,
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Transcription failed");
-      }
-
-      setTranscript(data.transcript);
-      setStep("reviewing");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-      setStep("stopped");
+  const handleInterviewComplete = async (characterData: CharacterData) => {
+    const defaultStyle = ART_STYLES.find((s) => s.id === "classic-storybook")!;
+    setStep("extracting");
+    await character.generateFromData(characterData, defaultStyle);
+    if (!character.error) {
+      setStep("reviewing-character");
     }
   };
 
   const handleRerecord = () => {
-    recorder.reset();
-    setTranscript("");
+    session.endSession();
+    modRecorder.reset();
+    character.reset();
     setError(null);
-    setStep("ready");
+    setStep("interview");
   };
 
-  const handleConfirmTranscript = (editedTranscript: string) => {
-    setTranscript(editedTranscript);
-    setStep("confirmed");
+  const handleBeginStorytelling = () => {
+    if (character.visualSeed) {
+      // startSession is async (mic + WebSocket setup) but fire-and-forget here;
+      // StorytellingView renders the loading/listening state as it initializes.
+      session.startSession(character.visualSeed);
+    }
+    setStep("storytelling");
   };
+
+  const handleApproveCharacter = () => {
+    character.lockVisualSeed();
+    setStep("character-locked");
+  };
+
+  const handleRequestModification = () => {
+    modRecorder.reset();
+    setError(null);
+    setStep("modifying-recording");
+  };
+
+  const handleModStartRecording = async () => {
+    setError(null);
+    await modRecorder.startRecording();
+  };
+
+  const handleModStopRecording = () => {
+    modRecorder.stopRecording();
+    setStep("modifying-stopped");
+  };
+
+  const handleModSubmit = async () => {
+    if (!modRecorder.audioBlob) return;
+
+    setStep("modifying-transcribing");
+    setError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("audio", modRecorder.audioBlob, "recording.webm");
+
+      const res = await fetch("/api/transcribe", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      setStep("modifying");
+      await character.modifyImage(data.transcript);
+      if (!character.error) {
+        setStep("reviewing-character");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+      setStep("reviewing-character");
+    }
+  };
+
+  const handleModRerecord = () => {
+    modRecorder.reset();
+    setError(null);
+    setStep("modifying-recording");
+  };
+
+  // Determine which error to show
+  const displayError = error || character.error || modRecorder.error;
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center p-4">
       <div className="card max-w-2xl w-full">
         {/* Error banner */}
-        {(error || recorder.error) && (
+        {displayError && (
           <div className="bg-red-100 border border-red-300 text-red-700 rounded-xl p-4 mb-6">
-            <p>{error || recorder.error}</p>
+            <p>{displayError}</p>
           </div>
         )}
 
-        {/* Step: Ready to record */}
-        {step === "ready" && (
+        {/* Step: Guided character interview */}
+        {step === "interview" && (
+          <GuidedCharacterInterview
+            onComplete={handleInterviewComplete}
+            onStartOver={handleRerecord}
+          />
+        )}
+
+        {/* Step: Generating character image */}
+        {step === "extracting" && (
+          <div className="text-center space-y-6 py-8">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-4 border-purple-600" />
+            <h2 className="text-2xl font-bold text-purple-800">
+              Bringing your character to life...
+            </h2>
+            <p className="text-gray-600">Generating your character illustration</p>
+          </div>
+        )}
+
+        {/* Step: Reviewing character image */}
+        {step === "reviewing-character" && character.currentImage && character.characterData && (
+          <CharacterReview
+            imageUrl={character.currentImage.imageUrl}
+            characterName={character.characterData.name}
+            onApprove={handleApproveCharacter}
+            onModify={handleRequestModification}
+            onStartOver={handleRerecord}
+            iterationCount={character.iterationCount}
+            maxIterations={character.maxIterations}
+          />
+        )}
+
+        {/* Step: Recording modification */}
+        {step === "modifying-recording" && (
           <div className="text-center space-y-6">
             <h2 className="text-3xl font-bold text-purple-800">
-              Tell Us About Your Story!
+              Tell Me What to Change!
             </h2>
             <p className="text-lg text-gray-700">
-              Who is the main character? What do they look like?
-              What adventure will they have?
+              Describe what you&apos;d like different about your character
             </p>
-            <div className="flex justify-center">
-              <RecordButton
-                isRecording={false}
-                onStart={handleStartRecording}
-                onStop={() => {}}
-              />
-            </div>
-            <p className="text-sm text-gray-500">
-              Tap the button and start talking (up to 60 seconds)
-            </p>
-          </div>
-        )}
 
-        {/* Step: Recording */}
-        {step === "recording" && (
-          <div className="text-center space-y-6">
-            <div className="flex items-center justify-center gap-2 mb-2">
-              <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
-              <span className="text-xl font-bold text-red-600">Recording...</span>
-            </div>
-
-            <RecordingTimer
-              duration={recorder.duration}
-              maxDuration={recorder.maxDuration}
-            />
-
-            <WaveformVisualizer
-              audioLevel={recorder.audioLevel}
-              isActive={true}
-            />
+            {modRecorder.status === "recording" && (
+              <>
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+                  <span className="text-xl font-bold text-red-600">Recording...</span>
+                </div>
+                <RecordingTimer
+                  duration={modRecorder.duration}
+                  maxDuration={modRecorder.maxDuration}
+                />
+                <WaveformVisualizer
+                  audioLevel={modRecorder.audioLevel}
+                  isActive={true}
+                />
+              </>
+            )}
 
             <div className="flex justify-center">
               <RecordButton
-                isRecording={true}
-                onStart={() => {}}
-                onStop={handleStopRecording}
+                isRecording={modRecorder.status === "recording"}
+                onStart={handleModStartRecording}
+                onStop={handleModStopRecording}
               />
             </div>
 
             <p className="text-sm text-gray-500">
-              Tap the button when you&apos;re done
+              Up to 30 seconds — tell us what to change
             </p>
           </div>
         )}
 
-        {/* Step: Stopped — review recording */}
-        {step === "stopped" && (
+        {/* Step: Modification recording stopped */}
+        {step === "modifying-stopped" && (
           <div className="text-center space-y-6">
             <h2 className="text-3xl font-bold text-purple-800">
-              Great job!
+              Got it!
             </h2>
             <p className="text-lg text-gray-700">
-              Listen back to your recording, then send it in.
+              Listen back, then send your feedback.
             </p>
 
-            {recorder.audioUrl && (
+            {modRecorder.audioUrl && (
               <div className="flex justify-center">
-                <AudioPlayback audioUrl={recorder.audioUrl} />
+                <AudioPlayback audioUrl={modRecorder.audioUrl} />
               </div>
             )}
 
             <div className="flex gap-4">
               <button
-                onClick={handleRerecord}
+                onClick={handleModRerecord}
                 className="flex-1 bg-gray-500 hover:bg-gray-600 text-white text-lg
                            font-bold py-4 px-6 rounded-full transition-colors"
               >
                 Re-record
               </button>
               <button
-                onClick={handleSubmitAudio}
+                onClick={handleModSubmit}
                 className="flex-1 btn-primary text-lg py-4 px-6"
               >
                 Send It In!
@@ -167,46 +255,55 @@ export default function CreatePage() {
           </div>
         )}
 
-        {/* Step: Transcribing */}
-        {step === "transcribing" && (
+        {/* Step: Transcribing modification */}
+        {step === "modifying-transcribing" && (
           <div className="text-center space-y-6 py-8">
             <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-4 border-purple-600" />
             <h2 className="text-2xl font-bold text-purple-800">
-              Listening to your story...
+              Listening to your feedback...
             </h2>
             <p className="text-gray-600">This will just take a moment</p>
           </div>
         )}
 
-        {/* Step: Reviewing transcript */}
-        {step === "reviewing" && (
-          <TranscriptionReview
-            transcript={transcript}
-            onConfirm={handleConfirmTranscript}
-            onRerecord={handleRerecord}
+        {/* Step: Regenerating with modifications */}
+        {step === "modifying" && (
+          <div className="text-center space-y-6 py-8">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-4 border-purple-600" />
+            <h2 className="text-2xl font-bold text-purple-800">
+              Updating your character...
+            </h2>
+            <p className="text-gray-600">Making those changes now</p>
+          </div>
+        )}
+
+        {/* Step: Character locked */}
+        {step === "character-locked" && character.visualSeed && (
+          <CharacterLocked
+            imageUrl={character.visualSeed.imageUrl}
+            characterName={character.visualSeed.characterData.name}
+            artStyleName={character.visualSeed.artStyle.name}
+            onStartOver={handleRerecord}
+            onBeginStorytelling={handleBeginStorytelling}
           />
         )}
 
-        {/* Step: Confirmed */}
-        {step === "confirmed" && (
-          <div className="text-center space-y-6">
-            <div className="text-6xl">🎉</div>
-            <h2 className="text-3xl font-bold text-purple-800">
-              Story Idea Saved!
-            </h2>
-            <div className="bg-white/60 rounded-xl p-4 text-left">
-              <p className="text-gray-800">{transcript}</p>
-            </div>
-            <p className="text-gray-500">
-              Next up: character creation and illustration (coming in Phase 2)
-            </p>
-            <button
-              onClick={handleRerecord}
-              className="btn-primary text-lg py-3 px-8"
-            >
-              Start Over
-            </button>
-          </div>
+        {/* Step: Storytelling */}
+        {step === "storytelling" && character.visualSeed && (
+          <StorytellingView
+            session={session}
+            visualSeed={character.visualSeed}
+            onStartOver={handleRerecord}
+          />
+        )}
+
+        {/* Step: Story complete — passes live session.beats so images update as they arrive */}
+        {step === "story-complete" && character.visualSeed && (
+          <StoryComplete
+            beats={session.beats}
+            visualSeed={character.visualSeed}
+            onStartOver={handleRerecord}
+          />
         )}
       </div>
     </main>

@@ -19,16 +19,16 @@ export default function Home() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div>
             <div className="text-4xl mb-2">🎤</div>
-            <h3 className="font-bold text-purple-700">1. Tell Your Story</h3>
+            <h3 className="font-bold text-purple-700">1. Create Your Character</h3>
             <p className="text-gray-600 text-sm mt-1">
-              Describe your character and adventure using your voice
+              Describe your main character using your voice and watch them come to life
             </p>
           </div>
           <div>
             <div className="text-4xl mb-2">🎨</div>
-            <h3 className="font-bold text-purple-700">2. Watch It Come Alive</h3>
+            <h3 className="font-bold text-purple-700">2. Tell Your Story</h3>
             <p className="text-gray-600 text-sm mt-1">
-              AI creates beautiful illustrations from your story
+              Narrate the adventure and see each scene illustrated as you go
             </p>
           </div>
           <div>

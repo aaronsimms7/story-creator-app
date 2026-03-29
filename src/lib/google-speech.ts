@@ -6,7 +6,7 @@ export async function transcribeAudio(audioBuffer: Buffer): Promise<string> {
 
   // Build multipart form data manually for Node.js fetch
   const formData = new FormData();
-  const audioBlob = new Blob([audioBuffer], { type: "audio/webm" });
+  const audioBlob = new Blob([new Uint8Array(audioBuffer)], { type: "audio/webm" });
   formData.append("file", audioBlob, "recording.webm");
   formData.append("model", "whisper-1");
   formData.append("language", "en");
